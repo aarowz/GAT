@@ -1,0 +1,33 @@
+# Data files (large .mat files)
+data/
+*.mat
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Model checkpoints and training outputs (kept in outputs/)
+outputs/checkpoints/*.pth
+outputs/checkpoints/*.pt
+outputs/figures/*.png
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
