@@ -3,24 +3,47 @@ Visualization module for GAT-Net predictions.
 
 Generates visualizations comparing predicted vs ground truth E-field components,
 showing both real and imaginary parts for Ex, Ey, and Ez.
+Uses mesh refinement factor to upsample 15×15 to finer grid for display.
 """
 
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.ndimage import zoom
+
+# When data has refinement <= 1 (same res as structure), use this for display so mesh shows
+DEFAULT_DISPLAY_REFINEMENT = 24
 
 
-def visualize_efield_predictions(predictions, targets, num_samples=1, save_path='efield_predictions.png'):
+def _upsample_for_mesh(arr, refinement, order=2):
+    """
+    Upsample array by mesh refinement factor for finer display.
+    arr: (H, W) or (C, H, W). refinement: int (e.g. 24).
+    Returns array of shape (H*refinement, W*refinement) or (C, H*ref, W*ref).
+    """
+    if refinement is None or refinement <= 1:
+        return arr
+    arr = np.asarray(arr)
+    if arr.ndim == 2:
+        return zoom(arr, refinement, order=order)
+    if arr.ndim == 3:
+        return zoom(arr, (1, refinement, refinement), order=order)
+    return arr
+
+
+def visualize_efield_predictions(predictions, targets, num_samples=1, save_path='efield_predictions.png', mesh_refinement=None):
     """
     Visualize predicted E-field components vs ground truth.
     Uses a clean 3x2 layout (like efield_comparison) per figure: one row per
     field component (Ex, Ey, Ez), two columns (Predicted, Ground Truth).
+    If mesh_refinement is set (e.g. 24), upsampled to finer grid for display.
     
     Args:
         predictions: Tensor of shape (batch_size, 6, H, W) - model predictions
         targets: Tensor of shape (batch_size, 6, H, W) - ground truth
         num_samples: Number of samples to visualize (default: 1 for clean layout)
         save_path: Path to save the visualization (default: 'efield_predictions.png')
+        mesh_refinement: Optional int or array of ints (one per sample). If set, upsample for display.
     """
     # Convert to numpy and move to CPU if needed
     if torch.is_tensor(predictions):
@@ -37,6 +60,11 @@ def visualize_efield_predictions(predictions, targets, num_samples=1, save_path=
     for sample_idx in range(batch_size):
         pred = predictions[sample_idx]   # (6, H, W)
         target = targets[sample_idx]    # (6, H, W)
+        ref = (mesh_refinement[sample_idx] if hasattr(mesh_refinement, '__len__') and not isinstance(mesh_refinement, (int, float)) else mesh_refinement) if mesh_refinement is not None else None
+        if ref is None or int(ref) <= 1:
+            ref = DEFAULT_DISPLAY_REFINEMENT
+        pred = _upsample_for_mesh(pred, int(ref))
+        target = _upsample_for_mesh(target, int(ref))
         
         # --- Real parts: 3 rows (Ex, Ey, Ez) x 2 cols (Predicted, Ground Truth) ---
         fig, axes = plt.subplots(3, 2, figsize=figsize)
@@ -85,15 +113,17 @@ def visualize_efield_predictions(predictions, targets, num_samples=1, save_path=
     print(f"  - {save_path.replace('.png', '_imaginary.png')}")
 
 
-def visualize_efield_comparison(predictions, targets, sample_idx=0, save_path='efield_comparison.png'):
+def visualize_efield_comparison(predictions, targets, sample_idx=0, save_path='efield_comparison.png', mesh_refinement=None):
     """
     Create a detailed comparison visualization for a single sample.
+    If mesh_refinement is set (e.g. 24), upsampled to finer grid for display.
     
     Args:
         predictions: Tensor of shape (batch_size, 6, H, W)
         targets: Tensor of shape (batch_size, 6, H, W)
         sample_idx: Index of sample to visualize (default: 0)
         save_path: Path to save the visualization
+        mesh_refinement: Optional int or array (one per sample). If set, upsample for display.
     """
     if torch.is_tensor(predictions):
         predictions = predictions.detach().cpu().numpy()
@@ -102,6 +132,21 @@ def visualize_efield_comparison(predictions, targets, sample_idx=0, save_path='e
     
     pred = predictions[sample_idx]  # (6, H, W)
     target = targets[sample_idx]    # (6, H, W)
+    # #region agent log
+    _log = lambda **kw: open("/Users/az/GAT/.cursor/debug.log", "a").write(__import__("json").dumps({"sessionId":"debug-session","runId":"run1",**kw}) + "\n")
+    _log(location="visualize.py:comparison", message="mesh_refinement received", hypothesisId="H3,H4", data={"mesh_refinement_is_none": mesh_refinement is None, "type": type(mesh_refinement).__name__, "sample_idx": sample_idx})
+    # #endregion
+    ref = (mesh_refinement[sample_idx] if hasattr(mesh_refinement, '__len__') and not isinstance(mesh_refinement, (int, float)) else mesh_refinement) if mesh_refinement is not None else None
+    # #region agent log
+    _log(location="visualize.py:ref", message="ref computed", hypothesisId="H3,H4", data={"ref": ref, "ref_is_none": ref is None, "pred_shape_before": list(pred.shape)})
+    # #endregion
+    if ref is None or int(ref) <= 1:
+        ref = DEFAULT_DISPLAY_REFINEMENT
+    pred = _upsample_for_mesh(pred, int(ref))
+    target = _upsample_for_mesh(target, int(ref))
+    # #region agent log
+    _log(location="visualize.py:after_upsample", message="after upsample", hypothesisId="H4", data={"pred_shape_after": list(pred.shape)})
+    # #endregion
     
     field_names = ['Ex', 'Ey', 'Ez']
     

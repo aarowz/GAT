@@ -29,7 +29,8 @@ def main():
     dataset = MetasurfaceDataset(
         data_folder=config.DATA_FOLDER,
         block_size=config.BLOCK_SIZE,
-        num_blocks_per_metasurface=config.NUM_BLOCKS_PER_METASURFACE
+        num_blocks_per_metasurface=config.NUM_BLOCKS_PER_METASURFACE,
+        seed=config.SEED,
     )
 
     if len(dataset) == 0:
