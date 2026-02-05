@@ -8,6 +8,8 @@ and data processing settings.
 # Data Configuration
 DATA_FOLDER = "data"  # Relative path to dataset folder containing .mat files
 BLOCK_SIZE = 15  # Size of extracted blocks (15x15)
+# Refinement factor: structure grid (e.g. 120×120) → E-field grid (e.g. 2883×2883). 2883/120 ≈ 24.
+MESH_REFINEMENT_FACTOR = 24
 NUM_BLOCKS_PER_METASURFACE = 100  # Number of random blocks per .mat file
 
 # Model Configuration

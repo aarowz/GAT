@@ -32,6 +32,8 @@ class MetasurfaceDataset(Dataset):
         X, Y: Normalized spatial coordinates
     - Edges: Connections between nodes within distance ≤ 2
     - Target: 6-channel field data (real/imaginary parts of Ex, Ey, Ez)
+    - Mesh: refinement factor (scalar) = E-field resolution / structure resolution (e.g. 2883/120 = 24).
+      Aligns with actual physics: structure 120×120, E-field 2883×2883, so 24× per dimension.
     """
 
     def __init__(self, data_folder, block_size=15, num_blocks_per_metasurface=100):
@@ -105,9 +107,11 @@ class MetasurfaceDataset(Dataset):
                         Ey_patch = Ey_patch[::field_scale, ::field_scale]
                         Ez_patch = Ez_patch[::field_scale, ::field_scale]
 
+                    # Mesh = refinement factor (structure → E-field). e.g. 120×120 → 2883×2883 gives 24
                     self.samples.append({
                         'D_x': D_x, 'D_y': D_y, 'R': R_patch, 'H': H_patch,
-                        'Ex': Ex_patch, 'Ey': Ey_patch, 'Ez': Ez_patch
+                        'Ex': Ex_patch, 'Ey': Ey_patch, 'Ez': Ez_patch,
+                        'mesh': field_scale
                     })
 
                 print(f"File {file_idx+1}/{len(mat_files)}: Extracted {self.num_blocks_per_metasurface} blocks")
@@ -173,6 +177,9 @@ class MetasurfaceDataset(Dataset):
         edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
         edge_attr = torch.tensor(edge_attrs, dtype=torch.float32).unsqueeze(-1)
 
+        # Mesh: refinement factor (scalar) from actual data: E-field res / structure res (e.g. 24)
+        mesh = torch.tensor([float(sample['mesh'])], dtype=torch.float32)
+
         # Create target (6 channels: real/imag for Ex, Ey, Ez)
         if np.iscomplexobj(sample['Ex']):
             target = torch.stack([
@@ -193,7 +200,8 @@ class MetasurfaceDataset(Dataset):
                 torch.zeros_like(torch.tensor(sample['Ez'], dtype=torch.float32)),
             ])
 
-        return Data(x=node_features, edge_index=edge_index, edge_attr=edge_attr), target
+        data = Data(x=node_features, edge_index=edge_index, edge_attr=edge_attr, mesh=mesh)
+        return data, target
 
     def __len__(self):
         return len(self.samples)
