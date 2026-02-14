@@ -21,6 +21,10 @@ outputs/checkpoints/*.pt
 outputs/figures/*.png
 *.log
 
+# Reference analysis outputs
+reference/analysis/figures/
+reference/analysis/reports/
+
 # IDE
 .vscode/
 .idea/

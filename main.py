@@ -30,6 +30,7 @@ def main():
         data_folder=config.DATA_FOLDER,
         block_size=config.BLOCK_SIZE,
         num_blocks_per_metasurface=config.NUM_BLOCKS_PER_METASURFACE,
+        mesh_refinement_factor=config.MESH_REFINEMENT_FACTOR,
         seed=config.SEED,
     )
 
@@ -74,7 +75,9 @@ def main():
         gat_heads=config.GAT_HEADS,
         gcn_hidden=config.GCN_HIDDEN,
         cnn_hidden=config.CNN_HIDDEN,
-        output_channels=config.OUTPUT_CHANNELS
+        output_channels=config.OUTPUT_CHANNELS,
+        grid_size=config.BLOCK_SIZE,
+        mesh_refinement_factor=config.MESH_REFINEMENT_FACTOR,
     )
     
     total_params = sum(p.numel() for p in model.parameters())

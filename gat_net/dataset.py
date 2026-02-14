@@ -12,6 +12,7 @@ import random
 import torch
 import numpy as np
 from scipy.io import loadmat
+from scipy.ndimage import zoom as ndimage_zoom
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 
@@ -22,6 +23,7 @@ except ImportError:
         return x
 
 
+# [Changed] E-field stacked into 6 channels (real/imag Ex,Ey,Ez) for preload cache.
 def _stack_E(Ex, Ey, Ez):
     """Stack E-field into 6 channels (real/imag for Ex, Ey, Ez)."""
     if np.iscomplexobj(Ex):
@@ -39,6 +41,7 @@ def _stack_E(Ex, Ey, Ez):
     return E
 
 
+# [Changed] Graph edges built once per grid size, reused for all samples (ref: data_utils).
 def _build_graph_structure(block_size, max_dist=2):
     """Build edge_index and edge_attr once for a block_size x block_size grid (distance <= max_dist)."""
     edges = []
@@ -62,6 +65,7 @@ def _build_graph_structure(block_size, max_dist=2):
     return edge_index, edge_attr
 
 
+# [Changed] Boundary mask precomputed once for vectorized node features.
 def _build_boundary_mask(block_size):
     """Boundary indicator: 1.0 on border, 0.0 inside (same for every sample)."""
     B = np.zeros((block_size, block_size), dtype=np.float32)
@@ -72,6 +76,7 @@ def _build_boundary_mask(block_size):
     return B
 
 
+# [Changed] Preload cache + sampled positions; shared graph; mesh = field_scale (ref: data_utils).
 class MetasurfaceDataset(Dataset):
     """
     Dataset for metasurface inverse design.
@@ -84,12 +89,13 @@ class MetasurfaceDataset(Dataset):
     - Mesh: refinement factor (E-field res / structure res, e.g. 24)
     """
 
-    def __init__(self, data_folder, block_size=15, num_blocks_per_metasurface=100, seed=None):
+    def __init__(self, data_folder, block_size=15, num_blocks_per_metasurface=100, mesh_refinement_factor=24, seed=None):
         """
         Args:
             data_folder: Path to folder containing .mat files
             block_size: Size of extracted blocks (15x15)
             num_blocks_per_metasurface: Number of random patch positions per file
+            mesh_refinement_factor: E-field target grid size per block dimension (target = block_size * this, e.g. 360)
             seed: Optional RNG seed for reproducible sampling
         """
         if seed is not None:
@@ -98,6 +104,8 @@ class MetasurfaceDataset(Dataset):
         self.data_folder = data_folder
         self.block_size = block_size
         self.num_blocks_per_metasurface = num_blocks_per_metasurface
+        self.mesh_refinement_factor = mesh_refinement_factor
+        self.target_grid_size = block_size * mesh_refinement_factor
         self.data_cache = []
         self.sampled_positions = []  # (file_idx, i, j)
 
@@ -105,6 +113,7 @@ class MetasurfaceDataset(Dataset):
         self._build_graph_structure()
         self._build_boundary_and_coords()
 
+    # [Changed] Load each .mat once into data_cache; then build sampled_positions (file_idx, i, j).
     def _preload_data(self):
         """Load each .mat file once into cache (like reference preload_data)."""
         if not os.path.exists(self.data_folder):
@@ -159,10 +168,12 @@ class MetasurfaceDataset(Dataset):
                 self.sampled_positions.append((file_idx, i, j))
         print(f"Total samples: {len(self.sampled_positions)}")
 
+    # [Changed] Edge index/attr built once and reused for every sample.
     def _build_graph_structure(self):
         """Build edge_index and edge_attr once (reused for all samples)."""
         self.edge_index, self.edge_attr = _build_graph_structure(self.block_size, max_dist=2)
 
+    # [Changed] Precompute B, X, Y for vectorized node features (no per-node loop).
     def _build_boundary_and_coords(self):
         """Precompute boundary mask and normalized coords for node features."""
         self._B = _build_boundary_mask(self.block_size)
@@ -175,6 +186,7 @@ class MetasurfaceDataset(Dataset):
         self._Y_flat = yy.reshape(-1)
         self._B_flat = self._B.reshape(-1)
 
+    # [Changed] Slice R,H,D and E from cache by (file_idx,i,j); E cropped/downsampled by field_scale.
     def _get_patch(self, file_idx, i, j):
         """Return (R, H, D_x, D_y) patches and (E_patch, field_scale) for one sample."""
         data = self.data_cache[file_idx]
@@ -185,19 +197,28 @@ class MetasurfaceDataset(Dataset):
         D = data["D"]
         D_x = D[0, i : i + bs, j : j + bs]
         D_y = D[1, i : i + bs, j : j + bs]
-        # E-field: crop at fine resolution then downsample to block_size
+        # E-field: crop at fine resolution and resize to fixed target (block_size * mesh_refinement_factor)
         if scale >= 1:
             ei, ej = i * scale, j * scale
             size = bs * scale
             E_crop = data["E"][:, ei : ei + size, ej : ej + size]
-            if scale > 1:
-                E_patch = E_crop[:, ::scale, ::scale]
+            target_size = self.target_grid_size
+            if E_crop.shape[1] != target_size or E_crop.shape[2] != target_size:
+                zoom_factors = (1, target_size / E_crop.shape[1], target_size / E_crop.shape[2])
+                E_patch = ndimage_zoom(E_crop, zoom_factors, order=2)
             else:
-                E_patch = E_crop
+                E_patch = E_crop.copy()
         else:
-            E_patch = data["E"][:, i : i + bs, j : j + bs]
+            E_crop = data["E"][:, i : i + bs, j : j + bs]
+            target_size = self.target_grid_size
+            if E_crop.shape[1] != target_size or E_crop.shape[2] != target_size:
+                zoom_factors = (1, target_size / E_crop.shape[1], target_size / E_crop.shape[2])
+                E_patch = ndimage_zoom(E_crop, zoom_factors, order=2)
+            else:
+                E_patch = E_crop.copy()
         return R_patch, H_patch, D_x, D_y, E_patch, scale
 
+    # [Changed] Build (N,7) node features with np.stack (no Python loop over nodes).
     def _node_features_vectorized(self, R_patch, H_patch, D_x, D_y):
         """Build (N, 7) node features without Python loop."""
         R_flat = np.asarray(R_patch, dtype=np.float32).reshape(-1)
@@ -213,6 +234,7 @@ class MetasurfaceDataset(Dataset):
     def __len__(self):
         return len(self.sampled_positions)
 
+    # [Changed] Return (data, target) with data.mesh = field_scale for viz upsampling.
     def __getitem__(self, idx):
         file_idx, i, j = self.sampled_positions[idx]
         R_patch, H_patch, D_x, D_y, E_patch, field_scale = self._get_patch(file_idx, i, j)

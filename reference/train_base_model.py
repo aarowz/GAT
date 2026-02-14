@@ -6,14 +6,14 @@ import numpy as np
 from glob import glob
 from tqdm import tqdm
 from torch_geometric.loader import DataLoader  # new import path
-from utils.data_utils import (
+from data_utils import (
     set_random_seed,
     load_unit_cell_field,
     compute_dataset_stats,
     FieldDataset
 )
-from models.base_model import BaseGNNModel
-from utils.train_utils import (
+from base_model import BaseGNNModel
+from train_utils import (
     save_checkpoint, 
     load_checkpoint,
     plot_training_history,
@@ -21,6 +21,10 @@ from utils.train_utils import (
     EarlyStopping
 )
 import random
+
+# Resolve data folder relative to repository root (one level above `reference/`)
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_DATA_DIR = os.path.join(_BASE_DIR, "data")
 
 def set_random_seed(seed):
     random.seed(seed)
@@ -134,9 +138,10 @@ def main():
     DECODER_MODE = 'upsample'    # 'direct': MLP directly outputs + CNN polish, 'upsample': CNN progressive upsampling (PixelShuffle)
     NORMALIZE_OUTPUT = False    # True: normalized training, False: original scale training
 
-    # load data file list
+    # load data file list (match repo `data/` folder used by GAT-Net)
     from glob import glob
-    file_lst = sorted(glob('./data/data3d_*.mat'))
+    file_pattern = os.path.join(_DATA_DIR, 'data3d_*.mat')
+    file_lst = sorted(glob(file_pattern))
     print(f"found {len(file_lst)} data files")
     
     if len(file_lst) == 0:

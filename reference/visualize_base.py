@@ -6,9 +6,14 @@ from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from glob import glob
 from torch_geometric.loader import DataLoader
-from models.base_model import BaseGNNModel
-from utils.data_utils import FieldDataset
-from utils.train_utils import load_checkpoint
+from base_model import BaseGNNModel
+from data_utils import FieldDataset
+from train_utils import load_checkpoint
+
+# Resolve data folder relative to repository root (one level above `reference/`)
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_DATA_DIR = os.path.join(_BASE_DIR, "data")
+
 
 def denorm(tensor, mean, std):
     """de-normalization function"""
@@ -85,8 +90,9 @@ def main():
     E_SCALE = 1.0
     TRAIN_RATIO, VAL_RATIO = 0.7, 0.15  # remaining 0.15 for test
 
-    # load data file list
-    file_list = sorted(glob('./data/data3d_*.mat'))
+    # load data file list (match repo `data/` folder used by GAT-Net)
+    file_pattern = os.path.join(_DATA_DIR, 'data3d_*.mat')
+    file_list = sorted(glob(file_pattern))
     print(f"found {len(file_list)} data files")
     
     if len(file_list) == 0:

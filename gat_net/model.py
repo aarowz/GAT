@@ -28,7 +28,8 @@ class GATNet(nn.Module):
     """
 
     def __init__(self, input_dim=7, gat_hidden=200, gat_heads=8, 
-                 gcn_hidden=1600, cnn_hidden=64, output_channels=6):
+                 gcn_hidden=1600, cnn_hidden=64, output_channels=6,
+                 grid_size=15, mesh_refinement_factor=24):
         """
         Initialize GAT-Net model.
         
@@ -39,8 +40,12 @@ class GATNet(nn.Module):
             gcn_hidden: Hidden dimension for GCN layers (default: 1600)
             cnn_hidden: Hidden dimension for CNN layers (default: 64)
             output_channels: Number of output channels (default: 6)
+            grid_size: Spatial grid size from GNN (default: 15)
+            mesh_refinement_factor: Upsample factor so output matches target grid (default: 24)
         """
         super().__init__()
+        self.grid_size = grid_size
+        self.output_grid_size = grid_size * mesh_refinement_factor
 
         # GAT Layer: Graph Attention with edge attributes
         self.gat1 = GATv2Conv(
@@ -127,9 +132,18 @@ class GATNet(nn.Module):
 
             x_spatial.append(nodes_reshaped)
 
-        x_spatial = torch.stack(x_spatial)  # (batch, cnn_hidden, 15, 15)
+        x_spatial = torch.stack(x_spatial)  # (batch, cnn_hidden, grid_size, grid_size)
         
-        # CNN layers: Predict field distribution
+        # CNN layers: Predict field distribution at coarse grid
         output = self.cnn_layers(x_spatial)
+
+        # Upsample to target E-field resolution (grid_size * mesh_refinement_factor)
+        if self.output_grid_size != self.grid_size:
+            output = F.interpolate(
+                output,
+                size=(self.output_grid_size, self.output_grid_size),
+                mode="bilinear",
+                align_corners=False,
+            )
 
         return output

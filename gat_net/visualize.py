@@ -20,10 +20,15 @@ def _upsample_for_mesh(arr, refinement, order=2):
     Upsample array by mesh refinement factor for finer display.
     arr: (H, W) or (C, H, W). refinement: int (e.g. 24).
     Returns array of shape (H*refinement, W*refinement) or (C, H*ref, W*ref).
+    If data is already high-res (spatial size > 15), no upsampling is applied.
     """
     if refinement is None or refinement <= 1:
         return arr
     arr = np.asarray(arr)
+    if arr.ndim == 3 and (arr.shape[1] > 15 or arr.shape[2] > 15):
+        return arr  # already high-resolution, do not upsample
+    if arr.ndim == 2 and (arr.shape[0] > 15 or arr.shape[1] > 15):
+        return arr
     if arr.ndim == 2:
         return zoom(arr, refinement, order=order)
     if arr.ndim == 3:
@@ -132,22 +137,12 @@ def visualize_efield_comparison(predictions, targets, sample_idx=0, save_path='e
     
     pred = predictions[sample_idx]  # (6, H, W)
     target = targets[sample_idx]    # (6, H, W)
-    # #region agent log
-    _log = lambda **kw: open("/Users/az/GAT/.cursor/debug.log", "a").write(__import__("json").dumps({"sessionId":"debug-session","runId":"run1",**kw}) + "\n")
-    _log(location="visualize.py:comparison", message="mesh_refinement received", hypothesisId="H3,H4", data={"mesh_refinement_is_none": mesh_refinement is None, "type": type(mesh_refinement).__name__, "sample_idx": sample_idx})
-    # #endregion
     ref = (mesh_refinement[sample_idx] if hasattr(mesh_refinement, '__len__') and not isinstance(mesh_refinement, (int, float)) else mesh_refinement) if mesh_refinement is not None else None
-    # #region agent log
-    _log(location="visualize.py:ref", message="ref computed", hypothesisId="H3,H4", data={"ref": ref, "ref_is_none": ref is None, "pred_shape_before": list(pred.shape)})
-    # #endregion
     if ref is None or int(ref) <= 1:
         ref = DEFAULT_DISPLAY_REFINEMENT
     pred = _upsample_for_mesh(pred, int(ref))
     target = _upsample_for_mesh(target, int(ref))
-    # #region agent log
-    _log(location="visualize.py:after_upsample", message="after upsample", hypothesisId="H4", data={"pred_shape_after": list(pred.shape)})
-    # #endregion
-    
+
     field_names = ['Ex', 'Ey', 'Ez']
     
     fig, axes = plt.subplots(3, 4, figsize=(16, 12))
