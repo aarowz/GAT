@@ -5,6 +5,7 @@ The model consists of three main components:
 1. Graph Attention Network (GAT) layer for learning node representations
 2. Graph Convolutional Network (GCN) layers for feature transformation
 3. Convolutional Neural Network (CNN) layers for spatial prediction
+4. PixelShuffle upsampling (learnable) to target E-field resolution
 """
 
 import torch
@@ -12,6 +13,35 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from torch_geometric.nn import GATv2Conv
+
+
+def _factorize_scale(n: int):
+    """Factorize upsampling factor into product of 2s and 3s (for PixelShuffle)."""
+    factors = []
+    for p in [3, 2]:
+        while n % p == 0:
+            factors.append(p)
+            n //= p
+    return factors, n
+
+
+class UpBlock(nn.Module):
+    """PixelShuffle upsampling block (learnable, from reference/base_model.py)."""
+    def __init__(self, ch: int, out_ch: int, r: int, p_drop: float = 0.1):
+        super().__init__()
+        self.conv = nn.Conv2d(ch, out_ch * (r ** 2), 3, padding=1)
+        self.ps = nn.PixelShuffle(r)
+        self.batch_norm = nn.BatchNorm2d(out_ch)
+        self.act = nn.GELU()
+        self.dropout = nn.Dropout2d(p_drop)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.ps(x)
+        x = self.batch_norm(x)
+        x = self.act(x)
+        x = self.dropout(x)
+        return x
 
 
 class GATNet(nn.Module):
@@ -23,18 +53,18 @@ class GATNet(nn.Module):
     - GCN Layers: Fully connected layers for feature transformation
     - CNN Layers: Convolutional layers for spatial field prediction
     
-    Input: Graph with 7-dimensional node features
+    Input: Graph with 5-dimensional node features
     Output: 6-channel field prediction (real/imaginary parts of Ex, Ey, Ez)
     """
 
-    def __init__(self, input_dim=7, gat_hidden=200, gat_heads=8, 
+    def __init__(self, input_dim=5, gat_hidden=200, gat_heads=8, 
                  gcn_hidden=1600, cnn_hidden=64, output_channels=6,
                  grid_size=15, mesh_refinement_factor=24):
         """
         Initialize GAT-Net model.
         
         Args:
-            input_dim: Number of input node features (default: 7)
+            input_dim: Number of input node features (default: 5)
             gat_hidden: Hidden dimension for GAT layer (default: 200)
             gat_heads: Number of attention heads (default: 8)
             gcn_hidden: Hidden dimension for GCN layers (default: 1600)
@@ -65,7 +95,7 @@ class GATNet(nn.Module):
         # Projection layer: Maps GCN output to CNN input dimension
         self.projection = nn.Linear(gcn_hidden, cnn_hidden)
 
-        # CNN Layers: Spatial convolution for field prediction
+        # CNN Layers: Spatial convolution for field prediction (output at coarse grid_size)
         self.cnn_layers = nn.Sequential(
             nn.Conv2d(cnn_hidden, cnn_hidden, kernel_size=5, padding=2),
             nn.BatchNorm2d(cnn_hidden),
@@ -78,6 +108,18 @@ class GATNet(nn.Module):
             nn.ReLU(),
             nn.Conv2d(cnn_hidden, output_channels, kernel_size=5, padding=2)
         )
+
+        # PixelShuffle upsampling: learnable progressive upsampling (replaces bilinear)
+        factors, remainder = _factorize_scale(mesh_refinement_factor)
+        if remainder != 1:
+            raise ValueError(
+                f"mesh_refinement_factor={mesh_refinement_factor} must factor into 2s and 3s, "
+                f"got remainder={remainder}"
+            )
+        self.upsample_blocks = nn.ModuleList()
+        ch = output_channels
+        for r in factors:
+            self.upsample_blocks.append(UpBlock(ch, ch, r, p_drop=0.1))
 
         # Batch normalization layers
         self.bn1 = nn.BatchNorm1d(gat_hidden * gat_heads)
@@ -137,13 +179,8 @@ class GATNet(nn.Module):
         # CNN layers: Predict field distribution at coarse grid
         output = self.cnn_layers(x_spatial)
 
-        # Upsample to target E-field resolution (grid_size * mesh_refinement_factor)
-        if self.output_grid_size != self.grid_size:
-            output = F.interpolate(
-                output,
-                size=(self.output_grid_size, self.output_grid_size),
-                mode="bilinear",
-                align_corners=False,
-            )
+        # PixelShuffle upsampling: learnable progressive upsampling to target resolution
+        for up_block in self.upsample_blocks:
+            output = up_block(output)
 
         return output

@@ -17,11 +17,37 @@ except ImportError:
     config = None
 
 
-def train_gatnet(model, train_loader, val_loader, epochs=100, lr=5e-6, 
-                 device='cuda', print_freq=10, save_plot=True, save_visualizations=True,
+class EarlyStopping:
+    """Stop training when validation loss stops improving."""
+    def __init__(self, patience=15, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.best_loss = None
+        self.early_stop = False
+
+    def __call__(self, val_loss):
+        if self.best_loss is None:
+            self.best_loss = val_loss
+            return False
+        if val_loss < self.best_loss - self.min_delta:
+            self.best_loss = val_loss
+            self.counter = 0
+            return False
+        self.counter += 1
+        if self.counter >= self.patience:
+            self.early_stop = True
+        return self.early_stop
+
+
+def train_gatnet(model, train_loader, val_loader, epochs=200, lr=5e-4, weight_decay=1e-5,
+                 lr_factor=0.8, lr_patience=5, early_stopping_patience=15,
+                 device='cuda', use_amp=True, print_freq=10, save_plot=True, save_visualizations=True,
                  figures_dir='outputs/figures'):
     """
     Train GAT-Net model.
+
+    Training params aligned with reference train_base_model.py.
     
     Args:
         model: GATNet model instance
@@ -29,11 +55,16 @@ def train_gatnet(model, train_loader, val_loader, epochs=100, lr=5e-6,
         val_loader: DataLoader for validation data
         epochs: Number of training epochs
         lr: Learning rate
+        weight_decay: L2 regularization
+        lr_factor: ReduceLROnPlateau factor
+        lr_patience: ReduceLROnPlateau patience
+        early_stopping_patience: Early stopping patience
         device: Device to train on ('cuda' or 'cpu')
+        use_amp: Use automatic mixed precision (fp16) when device is CUDA
         print_freq: Frequency of printing training progress
         save_plot: Whether to save loss plot
         save_visualizations: Whether to save E-field prediction visualizations
-        figures_dir: Directory to save loss plot and E-field figures (default: outputs/figures)
+        figures_dir: Directory to save loss plot and E-field figures
         
     Returns:
         model: Trained model
@@ -41,12 +72,18 @@ def train_gatnet(model, train_loader, val_loader, epochs=100, lr=5e-6,
         val_losses: List of validation losses per epoch
     """
     model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=lr_factor, patience=lr_patience
+    )
+    early_stopping = EarlyStopping(patience=early_stopping_patience)
+    use_amp = use_amp and device.type == 'cuda'
+    scaler = torch.cuda.amp.GradScaler() if use_amp else None
 
     train_losses = []
     val_losses = []
 
-    print(f"Starting training on {device}")
+    print(f"Starting training on {device}" + (" (AMP enabled)" if use_amp else ""))
     print(f"Training samples: {len(train_loader.dataset)}")
     print(f"Validation samples: {len(val_loader.dataset)}")
     print("-" * 60)
@@ -58,14 +95,22 @@ def train_gatnet(model, train_loader, val_loader, epochs=100, lr=5e-6,
         num_batches = 0
 
         for batch_graph, batch_target in train_loader:
-            batch_graph = batch_graph.to(device)
-            batch_target = batch_target.to(device)
+            batch_graph = batch_graph.to(device, non_blocking=True)
+            batch_target = batch_target.to(device, non_blocking=True)
 
             optimizer.zero_grad()
-            prediction = model(batch_graph)
-            loss = F.mse_loss(prediction, batch_target)
-            loss.backward()
-            optimizer.step()
+            if use_amp:
+                with torch.amp.autocast('cuda'):
+                    prediction = model(batch_graph)
+                    loss = F.mse_loss(prediction, batch_target)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                prediction = model(batch_graph)
+                loss = F.mse_loss(prediction, batch_target)
+                loss.backward()
+                optimizer.step()
 
             train_loss += loss.item()
             num_batches += 1
@@ -80,10 +125,14 @@ def train_gatnet(model, train_loader, val_loader, epochs=100, lr=5e-6,
 
         with torch.no_grad():
             for batch_graph, batch_target in val_loader:
-                batch_graph = batch_graph.to(device)
-                batch_target = batch_target.to(device)
+                batch_graph = batch_graph.to(device, non_blocking=True)
+                batch_target = batch_target.to(device, non_blocking=True)
 
-                prediction = model(batch_graph)
+                if use_amp:
+                    with torch.amp.autocast('cuda'):
+                        prediction = model(batch_graph)
+                else:
+                    prediction = model(batch_graph)
                 loss = F.mse_loss(prediction, batch_target)
 
                 val_loss += loss.item()
@@ -91,6 +140,11 @@ def train_gatnet(model, train_loader, val_loader, epochs=100, lr=5e-6,
 
         avg_val_loss = val_loss / num_val_batches if num_val_batches > 0 else 0
         val_losses.append(avg_val_loss)
+
+        scheduler.step(avg_val_loss)
+        if early_stopping(avg_val_loss):
+            print("\nEarly stopping triggered")
+            break
 
         # Print progress
         if epoch % print_freq == 0:

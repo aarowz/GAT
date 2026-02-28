@@ -22,6 +22,10 @@ def main():
     # Set device
     device = torch.device(config.DEVICE if torch.cuda.is_available() and config.DEVICE == 'cuda' else 'cpu')
     print(f"Using device: {device}")
+    if device.type == 'cpu':
+        print("WARNING: Training on CPU is very slow (~2-3 sec/batch). On Explorer cluster, request a GPU node:")
+        print("  srun --gres=gpu:1 -p gpu python main.py")
+        print("  or use an interactive GPU session before running.")
     print("=" * 60)
 
     # Load dataset
@@ -41,30 +45,40 @@ def main():
     print(f"Total samples loaded: {len(dataset)}")
     print("=" * 60)
 
-    # Split dataset
+    # Split dataset (70% train, 15% val, 15% test - matches reference)
     train_size = int(config.TRAIN_SPLIT * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    
+    val_size = int(config.VAL_SPLIT * len(dataset))
+    test_size = len(dataset) - train_size - val_size
+    train_dataset, val_dataset, test_dataset = random_split(
+        dataset, [train_size, val_size, test_size],
+        generator=torch.Generator().manual_seed(config.SEED or 42)
+    )
+
     print(f"Training samples: {train_size}")
     print(f"Validation samples: {val_size}")
+    print(f"Test samples (held out): {test_size}")
     print("=" * 60)
 
-    # Create dataloaders
+    # Create dataloaders (pin_memory + persistent_workers for faster GPU training)
+    use_pin = getattr(config, 'PIN_MEMORY', True) and device.type == 'cuda'
+    use_persistent = getattr(config, 'NUM_WORKERS', 0) > 0
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.BATCH_SIZE,
         shuffle=True,
         collate_fn=collate_graphs,
-        num_workers=config.NUM_WORKERS
+        num_workers=config.NUM_WORKERS,
+        pin_memory=use_pin,
+        persistent_workers=use_persistent,
     )
-    
     val_loader = DataLoader(
         val_dataset,
         batch_size=config.BATCH_SIZE,
         shuffle=False,
         collate_fn=collate_graphs,
-        num_workers=config.NUM_WORKERS
+        num_workers=config.NUM_WORKERS,
+        pin_memory=use_pin,
+        persistent_workers=use_persistent,
     )
 
     # Create model
@@ -94,7 +108,12 @@ def main():
         val_loader=val_loader,
         epochs=config.EPOCHS,
         lr=config.LEARNING_RATE,
+        weight_decay=config.WEIGHT_DECAY,
+        lr_factor=config.LR_SCHEDULER_FACTOR,
+        lr_patience=config.LR_SCHEDULER_PATIENCE,
+        early_stopping_patience=config.EARLY_STOPPING_PATIENCE,
         device=device,
+        use_amp=getattr(config, 'USE_AMP', True),
         print_freq=config.PRINT_FREQ,
         save_plot=config.SAVE_PLOT,
         save_visualizations=config.SAVE_VISUALIZATIONS,

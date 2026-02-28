@@ -46,20 +46,25 @@ def _build_graph_structure(block_size, max_dist=2):
     """Build edge_index and edge_attr once for a block_size x block_size grid (distance <= max_dist)."""
     edges = []
     edge_attrs = []
+    # Iterate over each grid cell (i, j) as a node
     for i in range(block_size):
         for j in range(block_size):
+            # Flatten 2D index to 1D node ID (row-major)
             node_id = i * block_size + j
+            # Consider neighbors within max_dist in both directions (Chebyshev-style neighborhood)
             for di in range(-max_dist, max_dist + 1):
                 for dj in range(-max_dist, max_dist + 1):
                     if di == 0 and dj == 0:
-                        continue
+                        continue  # Skip self-loops
                     ni, nj = i + di, j + dj
                     if 0 <= ni < block_size and 0 <= nj < block_size:
+                        # Euclidean distance between grid cells
                         dist = np.sqrt(di**2 + dj**2)
                         if dist <= max_dist:
                             neighbor_id = ni * block_size + nj
                             edges.append([node_id, neighbor_id])
                             edge_attrs.append(dist)
+    # PyG format: edge_index shape (2, num_edges), edge_attr shape (num_edges, 1)
     edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
     edge_attr = torch.tensor(edge_attrs, dtype=torch.float32).unsqueeze(-1)
     return edge_index, edge_attr
@@ -83,7 +88,7 @@ class MetasurfaceDataset(Dataset):
     Aligned with reference/data_utils.py: preload files, sample positions, shared graph structure.
     
     Each sample contains:
-    - Node features: [R, H, D_x, D_y, B, X, Y]
+    - Node features: [R, H, D_x, D_y, B]
     - Edges: built once (distance ≤ 2), reused for all samples
     - Target: 6-channel field (real/imag Ex, Ey, Ez)
     - Mesh: refinement factor (E-field res / structure res, e.g. 24)
@@ -173,17 +178,10 @@ class MetasurfaceDataset(Dataset):
         """Build edge_index and edge_attr once (reused for all samples)."""
         self.edge_index, self.edge_attr = _build_graph_structure(self.block_size, max_dist=2)
 
-    # [Changed] Precompute B, X, Y for vectorized node features (no per-node loop).
+    # [Changed] Precompute B for vectorized node features (no per-node loop).
     def _build_boundary_and_coords(self):
-        """Precompute boundary mask and normalized coords for node features."""
+        """Precompute boundary mask for node features (R, H, D_x, D_y, B only)."""
         self._B = _build_boundary_mask(self.block_size)
-        yy, xx = np.meshgrid(
-            np.arange(self.block_size, dtype=np.float32) / self.block_size,
-            np.arange(self.block_size, dtype=np.float32) / self.block_size,
-            indexing="ij"
-        )
-        self._X_flat = xx.reshape(-1)
-        self._Y_flat = yy.reshape(-1)
         self._B_flat = self._B.reshape(-1)
 
     # [Changed] Slice R,H,D and E from cache by (file_idx,i,j); E cropped/downsampled by field_scale.
@@ -218,17 +216,14 @@ class MetasurfaceDataset(Dataset):
                 E_patch = E_crop.copy()
         return R_patch, H_patch, D_x, D_y, E_patch, scale
 
-    # [Changed] Build (N,7) node features with np.stack (no Python loop over nodes).
+    # [Changed] Build (N,5) node features: R, H, D_x, D_y, B (matches reference 5 inputs).
     def _node_features_vectorized(self, R_patch, H_patch, D_x, D_y):
-        """Build (N, 7) node features without Python loop."""
+        """Build (N, 5) node features without Python loop."""
         R_flat = np.asarray(R_patch, dtype=np.float32).reshape(-1)
         H_flat = np.asarray(H_patch, dtype=np.float32).reshape(-1)
         D_x_flat = np.asarray(D_x, dtype=np.float32).reshape(-1)
         D_y_flat = np.asarray(D_y, dtype=np.float32).reshape(-1)
-        x_np = np.stack(
-            [R_flat, H_flat, D_x_flat, D_y_flat, self._B_flat, self._X_flat, self._Y_flat],
-            axis=1
-        )
+        x_np = np.stack([R_flat, H_flat, D_x_flat, D_y_flat, self._B_flat], axis=1)
         return torch.from_numpy(x_np)
 
     def __len__(self):
