@@ -100,6 +100,15 @@ def main():
     print(f"Trainable parameters: {trainable_params:,}")
     print("=" * 60)
 
+    # Resume from checkpoint if configured and file exists
+    os.makedirs(config.CHECKPOINT_DIR, exist_ok=True)
+    checkpoint_path = os.path.join(config.CHECKPOINT_DIR, 'gat_net_model.pth')
+    if getattr(config, 'RESUME_FROM_CHECKPOINT', False) and os.path.exists(checkpoint_path):
+        print(f"Resuming from checkpoint: {checkpoint_path}")
+        model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    else:
+        print("Starting from scratch (no checkpoint or RESUME_FROM_CHECKPOINT=False)")
+
     # Train model
     print("Starting training...")
     trained_model, train_losses, val_losses = train_gatnet(
@@ -121,8 +130,7 @@ def main():
     )
 
     # Save model
-    os.makedirs(config.CHECKPOINT_DIR, exist_ok=True)
-    model_path = os.path.join(config.CHECKPOINT_DIR, 'gat_net_model.pth')
+    model_path = checkpoint_path
     torch.save(trained_model.state_dict(), model_path)
     print(f"\nModel saved to: {model_path}")
 

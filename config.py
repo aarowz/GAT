@@ -5,6 +5,10 @@ Modify these values to adjust model architecture, training hyperparameters,
 and data processing settings.
 """
 
+import os
+
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 # Data Configuration
 DATA_FOLDER = "/home/zhou.aa/data/"  # Relative path to dataset folder containing .mat files
 BLOCK_SIZE = 15  # Size of extracted blocks (15x15)
@@ -22,7 +26,8 @@ CNN_HIDDEN = 64  # Hidden dimension for CNN layers
 OUTPUT_CHANNELS = 6  # Output channels: [Ex_real, Ex_imag, Ey_real, Ey_imag, Ez_real, Ez_imag]
 
 # Training Configuration (aligned with reference train_base_model.py)
-EPOCHS = 200
+EPOCHS = 1  # Train 1 epoch per run; use RESUME_FROM_CHECKPOINT to continue from last save
+RESUME_FROM_CHECKPOINT = True  # Load existing weights before training (for incremental epoch-by-epoch runs)
 LEARNING_RATE = 5e-4
 WEIGHT_DECAY = 1e-5
 BATCH_SIZE = 32
@@ -39,10 +44,10 @@ USE_AMP = True  # Mixed precision (fp16) for faster GPU training
 # Device Configuration
 DEVICE = 'cuda'  # 'cuda' or 'cpu' (will auto-detect if 'cuda' is set)
 
-# Output Configuration
-OUTPUT_DIR = "outputs"  # Root directory for all outputs
-CHECKPOINT_DIR = "outputs/checkpoints"  # Saved model weights (.pth)
-FIGURES_DIR = "outputs/figures"  # Loss plots and E-field visualizations (.png)
+# Output Configuration (absolute paths so outputs always go to project root)
+OUTPUT_DIR = os.path.join(_PROJECT_ROOT, "outputs")
+CHECKPOINT_DIR = os.path.join(_PROJECT_ROOT, "outputs", "checkpoints")
+FIGURES_DIR = os.path.join(_PROJECT_ROOT, "outputs", "figures")
 PRINT_FREQ = 10  # Print training progress every N epochs
 SAVE_PLOT = True  # Whether to save training loss plot
 SAVE_VISUALIZATIONS = True  # Whether to save E-field prediction visualizations
