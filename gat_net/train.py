@@ -78,7 +78,7 @@ def train_gatnet(model, train_loader, val_loader, epochs=200, lr=5e-4, weight_de
     )
     early_stopping = EarlyStopping(patience=early_stopping_patience)
     use_amp = use_amp and device.type == 'cuda'
-    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
 
     train_losses = []
     val_losses = []

@@ -26,7 +26,7 @@ CNN_HIDDEN = 64  # Hidden dimension for CNN layers
 OUTPUT_CHANNELS = 6  # Output channels: [Ex_real, Ex_imag, Ey_real, Ey_imag, Ez_real, Ez_imag]
 
 # Training Configuration (aligned with reference train_base_model.py)
-EPOCHS = 1  # Train 1 epoch per run; use RESUME_FROM_CHECKPOINT to continue from last save
+EPOCHS = 50  # Max epochs; early stopping halts when val loss stops improving (patience=15)
 RESUME_FROM_CHECKPOINT = True  # Load existing weights before training (for incremental epoch-by-epoch runs)
 LEARNING_RATE = 5e-4
 WEIGHT_DECAY = 1e-5

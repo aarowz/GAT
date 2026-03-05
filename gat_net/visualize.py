@@ -76,12 +76,14 @@ def visualize_efield_predictions(predictions, targets, num_samples=1, save_path=
         for field_idx, field_name in enumerate(field_names):
             real_pred = pred[field_idx * 2]
             real_target = target[field_idx * 2]
-            im1 = axes[field_idx, 0].imshow(real_pred, cmap='RdBu', aspect='auto')
+            vmin_real = min(real_pred.min(), real_target.min())
+            vmax_real = max(real_pred.max(), real_target.max())
+            im1 = axes[field_idx, 0].imshow(real_pred, cmap='RdBu', vmin=vmin_real, vmax=vmax_real, aspect='auto')
             axes[field_idx, 0].set_title(f'{field_name} Real (Predicted)', fontsize=fontsize_title)
             axes[field_idx, 0].set_xlabel('Width', fontsize=fontsize_label)
             axes[field_idx, 0].set_ylabel('Height', fontsize=fontsize_label)
             plt.colorbar(im1, ax=axes[field_idx, 0], fraction=0.046, pad=0.04)
-            im2 = axes[field_idx, 1].imshow(real_target, cmap='RdBu', aspect='auto')
+            im2 = axes[field_idx, 1].imshow(real_target, cmap='RdBu', vmin=vmin_real, vmax=vmax_real, aspect='auto')
             axes[field_idx, 1].set_title(f'{field_name} Real (Ground Truth)', fontsize=fontsize_title)
             axes[field_idx, 1].set_xlabel('Width', fontsize=fontsize_label)
             axes[field_idx, 1].set_ylabel('Height', fontsize=fontsize_label)
@@ -97,12 +99,14 @@ def visualize_efield_predictions(predictions, targets, num_samples=1, save_path=
         for field_idx, field_name in enumerate(field_names):
             imag_pred = pred[field_idx * 2 + 1]
             imag_target = target[field_idx * 2 + 1]
-            im1 = axes[field_idx, 0].imshow(imag_pred, cmap='RdBu', aspect='auto')
+            vmin_imag = min(imag_pred.min(), imag_target.min())
+            vmax_imag = max(imag_pred.max(), imag_target.max())
+            im1 = axes[field_idx, 0].imshow(imag_pred, cmap='RdBu', vmin=vmin_imag, vmax=vmax_imag, aspect='auto')
             axes[field_idx, 0].set_title(f'{field_name} Imaginary (Predicted)', fontsize=fontsize_title)
             axes[field_idx, 0].set_xlabel('Width', fontsize=fontsize_label)
             axes[field_idx, 0].set_ylabel('Height', fontsize=fontsize_label)
             plt.colorbar(im1, ax=axes[field_idx, 0], fraction=0.046, pad=0.04)
-            im2 = axes[field_idx, 1].imshow(imag_target, cmap='RdBu', aspect='auto')
+            im2 = axes[field_idx, 1].imshow(imag_target, cmap='RdBu', vmin=vmin_imag, vmax=vmax_imag, aspect='auto')
             axes[field_idx, 1].set_title(f'{field_name} Imaginary (Ground Truth)', fontsize=fontsize_title)
             axes[field_idx, 1].set_xlabel('Width', fontsize=fontsize_label)
             axes[field_idx, 1].set_ylabel('Height', fontsize=fontsize_label)
@@ -150,30 +154,36 @@ def visualize_efield_comparison(predictions, targets, sample_idx=0, save_path='e
     for field_idx, field_name in enumerate(field_names):
         row = field_idx
         
-        # Real part - Predicted
-        im1 = axes[row, 0].imshow(pred[field_idx * 2], cmap='RdBu', aspect='auto')
+        # Real part - shared scale for pred and target
+        real_pred = pred[field_idx * 2]
+        real_target = target[field_idx * 2]
+        vmin_real = min(real_pred.min(), real_target.min())
+        vmax_real = max(real_pred.max(), real_target.max())
+        im1 = axes[row, 0].imshow(real_pred, cmap='RdBu', vmin=vmin_real, vmax=vmax_real, aspect='auto')
         axes[row, 0].set_title(f'{field_name} Real (Predicted)')
         axes[row, 0].set_xlabel('Width')
         axes[row, 0].set_ylabel('Height')
         plt.colorbar(im1, ax=axes[row, 0])
-        
-        # Real part - Ground Truth
-        im2 = axes[row, 1].imshow(target[field_idx * 2], cmap='RdBu', aspect='auto')
+        im2 = axes[row, 1].imshow(real_target, cmap='RdBu', vmin=vmin_real, vmax=vmax_real, aspect='auto')
         axes[row, 1].set_title(f'{field_name} Real (Ground Truth)')
         axes[row, 1].set_xlabel('Width')
         axes[row, 1].set_ylabel('Height')
         plt.colorbar(im2, ax=axes[row, 1])
         
         # Real part - Error
-        error_real = np.abs(pred[field_idx * 2] - target[field_idx * 2])
+        error_real = np.abs(real_pred - real_target)
         im3 = axes[row, 2].imshow(error_real, cmap='hot', aspect='auto')
         axes[row, 2].set_title(f'{field_name} Real (Error)')
         axes[row, 2].set_xlabel('Width')
         axes[row, 2].set_ylabel('Height')
         plt.colorbar(im3, ax=axes[row, 2])
         
-        # Imaginary part - Predicted
-        im4 = axes[row, 3].imshow(pred[field_idx * 2 + 1], cmap='RdBu', aspect='auto')
+        # Imaginary part - shared scale (pred shown; target scale used for consistency)
+        imag_pred = pred[field_idx * 2 + 1]
+        imag_target = target[field_idx * 2 + 1]
+        vmin_imag = min(imag_pred.min(), imag_target.min())
+        vmax_imag = max(imag_pred.max(), imag_target.max())
+        im4 = axes[row, 3].imshow(imag_pred, cmap='RdBu', vmin=vmin_imag, vmax=vmax_imag, aspect='auto')
         axes[row, 3].set_title(f'{field_name} Imaginary (Predicted)')
         axes[row, 3].set_xlabel('Width')
         axes[row, 3].set_ylabel('Height')
