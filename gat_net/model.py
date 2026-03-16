@@ -44,6 +44,21 @@ class UpBlock(nn.Module):
         return x
 
 
+class LastUpBlock(nn.Module):
+    """Final upsampling block - no activation so output can span full E-field range."""
+    def __init__(self, ch: int, out_ch: int, r: int):
+        super().__init__()
+        self.conv = nn.Conv2d(ch, out_ch * (r ** 2), 3, padding=1)
+        self.ps = nn.PixelShuffle(r)
+        self.batch_norm = nn.BatchNorm2d(out_ch)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.ps(x)
+        x = self.batch_norm(x)
+        return x
+
+
 class GATNet(nn.Module):
     """
     GAT-Net: Graph Attention Network for Metasurface Inverse Design.
@@ -118,8 +133,11 @@ class GATNet(nn.Module):
             )
         self.upsample_blocks = nn.ModuleList()
         ch = output_channels
-        for r in factors:
-            self.upsample_blocks.append(UpBlock(ch, ch, r, p_drop=0.1))
+        for i, r in enumerate(factors):
+            if i == len(factors) - 1:
+                self.upsample_blocks.append(LastUpBlock(ch, ch, r))
+            else:
+                self.upsample_blocks.append(UpBlock(ch, ch, r, p_drop=0.1))
 
         # Batch normalization layers
         self.bn1 = nn.BatchNorm1d(gat_hidden * gat_heads)

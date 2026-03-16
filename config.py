@@ -27,7 +27,7 @@ OUTPUT_CHANNELS = 6  # Output channels: [Ex_real, Ex_imag, Ey_real, Ey_imag, Ez_
 
 # Training Configuration (aligned with reference train_base_model.py)
 EPOCHS = 50  # Max epochs; early stopping halts when val loss stops improving (patience=15)
-RESUME_FROM_CHECKPOINT = True  # Load existing weights before training (for incremental epoch-by-epoch runs)
+RESUME_FROM_CHECKPOINT = False  # Start from scratch (remove old checkpoint on cluster first)
 LEARNING_RATE = 5e-4
 WEIGHT_DECAY = 1e-5
 BATCH_SIZE = 32
