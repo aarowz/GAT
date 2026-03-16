@@ -37,13 +37,12 @@ The GAT-Net model consists of three main components:
 ### Data Flow
 
 1. **Input**: 15×15 metasurface blocks with geometry data (R, H, D_x, D_y)
-2. **Graph Creation**: Each pixel becomes a node with 7 features: [R, H, D_x, D_y, B, X, Y]
+2. **Graph Creation**: Each pixel becomes a node with 5 features: [R, H, D_x, D_y, B]
    - R: Material property
    - H: Height
    - D_x, D_y: Displacement components
-   - B: Boundary indicator (1.0 for edges, 0.0 otherwise)
-   - X, Y: Normalized spatial coordinates
-3. **Graph Processing**: Nodes are connected if within distance ≤ 2
+   - B: Boundary indicator (1.0 for edges, 0.0 otherwise; derived from grid position)
+3. **Graph Processing**: Nodes are connected if within distance ≤ 2 (Euclidean edge attributes)
 4. **Output**: 6-channel field prediction (real/imaginary parts of Ex, Ey, Ez)
 
 ## Installation
@@ -77,7 +76,7 @@ The script will:
 
 1. Load and process .mat files from the specified data folder
 2. Extract 15×15 blocks from each metasurface
-3. Split data into training (80%) and validation (20%) sets
+3. Split data into training (70%), validation (15%), and test (15%) sets
 4. Train the GAT-Net model
 5. Save the trained model and training loss plot
 
@@ -104,9 +103,10 @@ train_gatnet(model, train_loader, val_loader, epochs=100)
 
 **MetasurfaceDataset**: Handles loading .mat files and converting spatial data to graphs.
 
-- `__init__()`: Initialize dataset with data folder path
-- `create_graph()`: Convert a sample to graph representation
-- `__getitem__()`: Get a graph sample by index
+- `__init__()`: Initialize dataset with data folder path, preload .mat files, build graph structure
+- `_preload_data()`: Load .mat files into cache, sample patch positions
+- `_build_graph_structure()`: Build edge_index and edge_attr (reused for all samples)
+- `__getitem__()`: Return graph sample (node features, edges, target E-field) by index
 
 ### `gat_net/model.py`
 
@@ -144,20 +144,21 @@ train_gatnet(model, train_loader, val_loader, epochs=100)
 
 The code expects .mat files containing:
 
-- `D`: Displacement data (shape: [2, H, W])
+- `D`: Displacement data (shape: [2, H, W] for D_x, D_y)
 - `R`: Material property (shape: [H, W])
 - `H`: Height data (shape: [H, W])
-- `Ex`, `Ey`, `Ez`: Electric field components (shape: [H_field, W_field])
+- `Ex`, `Ey`, `Ez`: Electric field components (shape: [H_field, W_field]), or `E` as tuple of (Ex, Ey, Ez)
 
 The field data can be either:
 
-- Complex-valued arrays (will be split into real/imaginary parts)
+- Complex-valued arrays (will be split into real/imaginary parts → 6 channels)
 - Real-valued arrays (imaginary part set to zero)
 
 ## Model Parameters
 
 Default configuration:
 
+- **Input**: 5 node features (R, H, D_x, D_y, B)
 - **GAT Layer**: 200 hidden units, 8 attention heads
 - **GCN Layers**: 1600 hidden units (2 layers)
 - **CNN Layers**: 64 → 128 → 64 → 6 channels
@@ -165,9 +166,9 @@ Default configuration:
 
 ## Training Tips
 
-1. **Learning Rate**: Start with 5e-6, adjust based on convergence
+1. **Learning Rate**: Default 5e-4 (configurable in `config.py`)
 2. **Batch Size**: Adjust based on GPU memory (default: 32)
-3. **Data Augmentation**: The code extracts random blocks, providing natural augmentation
+3. **Data Augmentation**: The code extracts random 15×15 blocks per metasurface, providing natural augmentation
 4. **Monitoring**: Check `outputs/figures/training_losses.png` for convergence patterns
 
 ## Output
@@ -176,8 +177,7 @@ After training, all outputs are written under `outputs/`:
 
 - **outputs/checkpoints/gat_net_model.pth** – Trained model weights
 - **outputs/figures/training_losses.png** – Plot of training and validation losses
-- **outputs/figures/efield_predictions_real.png** – Predicted vs ground truth E-field real parts
-- **outputs/figures/efield_predictions_imaginary.png** – Predicted vs ground truth E-field imaginary parts
+- **outputs/figures/efield_predictions.png** – Predicted vs ground truth E-field (Ex, Ey, Ez real/imag)
 - **outputs/figures/efield_comparison.png** – Detailed comparison for a sample prediction
 
 ## Citation
