@@ -9,7 +9,6 @@ from dataclasses import asdict
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
@@ -55,7 +54,52 @@ def _collate(batch):
     )
 
 
-def _run_epoch(model: nn.Module, loader: DataLoader, optimizer, device: torch.device, cfg: Config):
+def _compute_channel_weights(train_data: np.ndarray, cfg: Config) -> np.ndarray:
+    """
+    Compute per-channel weights from train-set statistics.
+    Uses inverse std so larger-scale channels are down-weighted.
+    """
+    if not cfg.use_channel_balance:
+        return np.ones((cfg.num_channels,), dtype=np.float32)
+
+    # train_data: (N, 20, 6) -> std over N and wavelength dimensions
+    channel_std = train_data.std(axis=(0, 1)).astype(np.float32)
+    inv = 1.0 / np.clip(channel_std, cfg.channel_balance_eps, None)
+    weights = inv / np.mean(inv)
+    weights = np.clip(weights, cfg.channel_weight_min, cfg.channel_weight_max)
+    weights = (weights / np.mean(weights)).astype(np.float32)
+    return weights
+
+
+def _weighted_l1(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    channel_weights: torch.Tensor,
+    element_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    Weighted L1 where channel_weights shape is (6,).
+    element_mask, if provided, must be broadcastable to pred (B, 20, 6).
+    """
+    weights = channel_weights.view(1, 1, -1)
+    abs_err = torch.abs(pred - target)
+    if element_mask is not None:
+        weighted_num = (abs_err * element_mask * weights).sum()
+        weighted_den = (element_mask * weights).sum().clamp_min(1.0)
+    else:
+        weighted_num = (abs_err * weights).sum()
+        weighted_den = (torch.ones_like(abs_err) * weights).sum().clamp_min(1.0)
+    return weighted_num / weighted_den
+
+
+def _run_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    optimizer,
+    device: torch.device,
+    cfg: Config,
+    channel_weights: torch.Tensor,
+):
     is_train = optimizer is not None
     model.train() if is_train else model.eval()
     total_loss = 0.0
@@ -69,9 +113,18 @@ def _run_epoch(model: nn.Module, loader: DataLoader, optimizer, device: torch.de
 
             pred = model(masked, visible)
             masked_region = 1.0 - visible
-            masked_den = masked_region.sum().clamp_min(1.0)
-            l1_masked = (torch.abs(pred - target) * masked_region).sum() / masked_den
-            l1_full = F.l1_loss(pred, target)
+            l1_masked = _weighted_l1(
+                pred=pred,
+                target=target,
+                channel_weights=channel_weights,
+                element_mask=masked_region,
+            )
+            l1_full = _weighted_l1(
+                pred=pred,
+                target=target,
+                channel_weights=channel_weights,
+                element_mask=None,
+            )
             loss = cfg.masked_loss_weight * l1_masked + cfg.full_loss_weight * l1_full
 
             if is_train:
@@ -109,6 +162,8 @@ def train_main() -> dict:
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size, shuffle=False, collate_fn=_collate)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    channel_weights_np = _compute_channel_weights(train_data, cfg)
+    channel_weights_t = torch.from_numpy(channel_weights_np).to(device)
     model = JonesReconstructionMLP(hidden_dim=cfg.hidden_dim, dropout=cfg.dropout).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
@@ -117,8 +172,8 @@ def train_main() -> dict:
     best_path = os.path.join(cfg.output_dir, cfg.checkpoint_name)
 
     for epoch in range(cfg.epochs):
-        train_loss = _run_epoch(model, train_loader, optimizer, device, cfg)
-        val_loss = _run_epoch(model, val_loader, None, device, cfg)
+        train_loss = _run_epoch(model, train_loader, optimizer, device, cfg, channel_weights_t)
+        val_loss = _run_epoch(model, val_loader, None, device, cfg, channel_weights_t)
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
         if val_loss < best_val:
@@ -131,6 +186,7 @@ def train_main() -> dict:
         "config": asdict(cfg),
         "device": str(device),
         "mask_types": list(MASK_TYPES),
+        "channel_weights": channel_weights_np.tolist(),
         "history": history,
         "best_val_loss": best_val,
     }

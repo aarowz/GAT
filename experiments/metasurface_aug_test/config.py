@@ -20,8 +20,17 @@ class Config:
     epochs: int = 20
     lr: float = 1e-3
     weight_decay: float = 1e-4
-    masked_loss_weight: float = 1.0
-    full_loss_weight: float = 0.2
+    # Loss shaping: prioritize masked reconstruction (recommended range: 1.5-2.0)
+    masked_loss_weight: float = 1.5
+    # Keep a small full-matrix term for stability (recommended range: 0.1-0.2)
+    full_loss_weight: float = 0.1
+    # Channel balancing based on train-set statistics.
+    use_channel_balance: bool = True
+    # Numerical stability for inverse-scale weighting.
+    channel_balance_eps: float = 1e-6
+    # Clamp channel weights to avoid unstable extremes.
+    channel_weight_min: float = 0.25
+    channel_weight_max: float = 4.0
 
     # Model
     hidden_dim: int = 128
