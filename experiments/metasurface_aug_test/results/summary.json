@@ -1,0 +1,20 @@
+{
+  "aggregate_masked_l1": 0.9038424958778092,
+  "per_mask_type_masked_l1": {
+    "type1": 0.7273235406262136,
+    "type2": 1.2413462876883166,
+    "type3": 0.799646389287744,
+    "type4": 0.9073776333484584,
+    "type5": 0.8435186284383138
+  },
+  "baseline_zero_fill_aggregate_masked_l1": 1.0974909867267497,
+  "baseline_zero_fill_per_mask_type_masked_l1": {
+    "type1": 0.9848216027153862,
+    "type2": 1.4565958444695721,
+    "type3": 0.9846485668117718,
+    "type4": 1.0740225878371936,
+    "type5": 0.987366331799825
+  },
+  "improvement_vs_baseline": 0.19364849084894054,
+  "num_test_samples": 750
+}
