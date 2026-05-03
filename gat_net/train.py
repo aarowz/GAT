@@ -7,7 +7,7 @@ Handles model training, validation, and loss tracking.
 import os
 import numpy as np
 import torch
-import torch.nn.functional as F
+
 import matplotlib.pyplot as plt
 from .visualize import visualize_efield_predictions, visualize_efield_comparison
 
@@ -15,6 +15,14 @@ try:
     import config
 except ImportError:
     config = None
+
+
+def _channel_weighted_mse(prediction: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """MSE weighted by per-channel inverse std so all 6 E-field channels contribute equally."""
+    per_ch_mse = ((prediction - target) ** 2).mean(dim=(0, 2, 3))
+    weights = 1.0 / target.std(dim=(0, 2, 3)).clamp(min=eps)
+    weights = weights / weights.mean()
+    return (per_ch_mse * weights).mean()
 
 
 class EarlyStopping:
@@ -102,13 +110,13 @@ def train_gatnet(model, train_loader, val_loader, epochs=200, lr=5e-4, weight_de
             if use_amp:
                 with torch.amp.autocast('cuda'):
                     prediction = model(batch_graph)
-                    loss = F.mse_loss(prediction, batch_target)
+                    loss = _channel_weighted_mse(prediction, batch_target)
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 prediction = model(batch_graph)
-                loss = F.mse_loss(prediction, batch_target)
+                loss = _channel_weighted_mse(prediction, batch_target)
                 loss.backward()
                 optimizer.step()
 
@@ -133,7 +141,7 @@ def train_gatnet(model, train_loader, val_loader, epochs=200, lr=5e-4, weight_de
                         prediction = model(batch_graph)
                 else:
                     prediction = model(batch_graph)
-                loss = F.mse_loss(prediction, batch_target)
+                loss = _channel_weighted_mse(prediction, batch_target)
 
                 val_loss += loss.item()
                 num_val_batches += 1
