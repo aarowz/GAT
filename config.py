@@ -25,6 +25,10 @@ GCN_HIDDEN = 1600  # Hidden dimension for GCN layers
 CNN_HIDDEN = 64  # Hidden dimension for CNN layers
 OUTPUT_CHANNELS = 6  # Output channels: [Ex_real, Ex_imag, Ey_real, Ey_imag, Ez_real, Ez_imag]
 
+# Training loss: which E-field channels enter weighted MSE (order: Ex_r, Ex_i, Ey_r, Ey_i, Ez_r, Ez_i).
+# (0, 1) = Ex only; set to None to include all OUTPUT_CHANNELS (default 6).
+LOSS_MSE_CHANNEL_INDICES = (0, 1)
+
 # Training Configuration (aligned with reference train_base_model.py)
 EPOCHS = 50  # Max epochs; early stopping halts when val loss stops improving (patience=15)
 RESUME_FROM_CHECKPOINT = False  # Start from scratch (remove old checkpoint on cluster first)

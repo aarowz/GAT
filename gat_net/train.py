@@ -17,12 +17,30 @@ except ImportError:
     config = None
 
 
-def _channel_weighted_mse(prediction: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
-    """MSE weighted by per-channel inverse std so all 6 E-field channels contribute equally."""
-    per_ch_mse = ((prediction - target) ** 2).mean(dim=(0, 2, 3))
-    weights = 1.0 / target.std(dim=(0, 2, 3)).clamp(min=eps)
+def _channel_weighted_mse(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    channel_indices=None,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """MSE weighted by per-channel inverse std over the selected channels (balanced within that set)."""
+    c = prediction.shape[1]
+    if channel_indices is None:
+        channel_indices = tuple(range(c))
+    idx = list(channel_indices)
+    pred_s = prediction[:, idx, :, :]
+    targ_s = target[:, idx, :, :]
+    per_ch_mse = ((pred_s - targ_s) ** 2).mean(dim=(0, 2, 3))
+    weights = 1.0 / targ_s.std(dim=(0, 2, 3)).clamp(min=eps)
     weights = weights / weights.mean()
     return (per_ch_mse * weights).mean()
+
+
+def _training_loss_channel_indices():
+    """Channel indices for training/val loss; None => all output channels."""
+    if config is None:
+        return None
+    return getattr(config, "LOSS_MSE_CHANNEL_INDICES", None)
 
 
 class EarlyStopping:
@@ -91,7 +109,12 @@ def train_gatnet(model, train_loader, val_loader, epochs=200, lr=5e-4, weight_de
     train_losses = []
     val_losses = []
 
+    loss_ch = _training_loss_channel_indices()
     print(f"Starting training on {device}" + (" (AMP enabled)" if use_amp else ""))
+    if loss_ch is None:
+        print("Loss: weighted MSE on all E-field output channels")
+    else:
+        print(f"Loss: weighted MSE on channels {loss_ch} only (viz still shows Ex, Ey, Ez)")
     print(f"Training samples: {len(train_loader.dataset)}")
     print(f"Validation samples: {len(val_loader.dataset)}")
     print("-" * 60)
@@ -110,13 +133,13 @@ def train_gatnet(model, train_loader, val_loader, epochs=200, lr=5e-4, weight_de
             if use_amp:
                 with torch.amp.autocast('cuda'):
                     prediction = model(batch_graph)
-                    loss = _channel_weighted_mse(prediction, batch_target)
+                    loss = _channel_weighted_mse(prediction, batch_target, loss_ch)
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 prediction = model(batch_graph)
-                loss = _channel_weighted_mse(prediction, batch_target)
+                loss = _channel_weighted_mse(prediction, batch_target, loss_ch)
                 loss.backward()
                 optimizer.step()
 
@@ -141,7 +164,7 @@ def train_gatnet(model, train_loader, val_loader, epochs=200, lr=5e-4, weight_de
                         prediction = model(batch_graph)
                 else:
                     prediction = model(batch_graph)
-                loss = _channel_weighted_mse(prediction, batch_target)
+                loss = _channel_weighted_mse(prediction, batch_target, loss_ch)
 
                 val_loss += loss.item()
                 num_val_batches += 1
@@ -176,7 +199,10 @@ def train_gatnet(model, train_loader, val_loader, epochs=200, lr=5e-4, weight_de
         plt.plot(val_losses, label='Val Loss', linewidth=2)
         plt.xlabel('Epoch', fontsize=12)
         plt.ylabel('MSE Loss', fontsize=12)
-        plt.title('Training Progress', fontsize=14)
+        title = 'Training Progress'
+        if loss_ch is not None:
+            title += f' (channels {loss_ch})'
+        plt.title(title, fontsize=14)
         plt.legend(fontsize=12)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()

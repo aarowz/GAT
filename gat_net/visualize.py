@@ -2,7 +2,8 @@
 Visualization module for GAT-Net predictions.
 
 Generates visualizations comparing predicted vs ground truth E-field components,
-showing both real and imaginary parts for Ex, Ey, and Ez.
+showing both real and imaginary parts for Ex, Ey, and Ez (unchanged even when
+training loss is restricted to a subset of channels, e.g. Ex only).
 Uses mesh refinement factor to upsample 15×15 to finer grid for display.
 """
 
