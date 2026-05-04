@@ -43,7 +43,10 @@ def _stack_E(Ex, Ey, Ez):
 
 # [Changed] Graph edges built once per grid size, reused for all samples (ref: data_utils).
 def _build_graph_structure(block_size, max_dist=2):
-    """Build edge_index and edge_attr once for a block_size x block_size grid (distance <= max_dist)."""
+    """Build edge_index and edge_attr once for a block_size x block_size grid.
+
+    Edges connect cells whose integer grid offsets have Euclidean length <= max_dist.
+    """
     edges = []
     edge_attrs = []
     # Iterate over each grid cell (i, j) as a node
@@ -51,14 +54,13 @@ def _build_graph_structure(block_size, max_dist=2):
         for j in range(block_size):
             # Flatten 2D index to 1D node ID (row-major)
             node_id = i * block_size + j
-            # Consider neighbors within max_dist in both directions (Chebyshev-style neighborhood)
+            # Neighbors: offsets (di, dj) with Euclidean distance on the grid <= max_dist
             for di in range(-max_dist, max_dist + 1):
                 for dj in range(-max_dist, max_dist + 1):
                     if di == 0 and dj == 0:
                         continue  # Skip self-loops
                     ni, nj = i + di, j + dj
                     if 0 <= ni < block_size and 0 <= nj < block_size:
-                        # Euclidean distance between grid cells
                         dist = np.sqrt(di**2 + dj**2)
                         if dist <= max_dist:
                             neighbor_id = ni * block_size + nj
